@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Read-only role that the Steampipe server assumes via SteampipeHub. Deploy in every account you want to query, including the home account.
+
+Parameters:
+  HubRoleArn:
+    Type: String
+    Description: HubRoleArn output of the steampipe-hub stack, e.g. arn:aws:iam::111111111111:role/SteampipeHub
+    AllowedPattern: "arn:aws:iam::[0-9]{12}:role/.+"
+
+Resources:
+  SteampipeReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SteampipeReadOnly
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref HubRoleArn
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession        # Roles Anywhere session tags are transitive
+              - sts:SetSourceIdentity # source identity carries through role chaining
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+      Policies:
+        - PolicyName: DenySecretsAndData
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Deny
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                  - kms:Decrypt
+                  - s3:GetObject
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - lambda:GetFunction
+                  - ec2:GetPasswordData
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt SteampipeReadOnlyRole.Arn

@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Home account only. IAM Roles Anywhere trust anchor + profile, and the SteampipeHub role
+  the Railway server gets via its certificate. SteampipeHub can only assume SteampipeReadOnly roles.
+
+Parameters:
+  CaCertificatePem:
+    Type: String
+    Description: Contents of ca.pem from make-certs.sh (pass it with the AWS CLI so newlines are kept)
+  CertCommonName:
+    Type: String
+    Default: steampipe-railway
+    Description: CN of the client certificate allowed to use this role
+
+Resources:
+  TrustAnchor:
+    Type: AWS::RolesAnywhere::TrustAnchor
+    Properties:
+      Name: steampipe-railway-ca
+      Enabled: true
+      Source:
+        SourceType: CERTIFICATE_BUNDLE
+        SourceData:
+          X509CertificateData: !Ref CaCertificatePem
+
+  HubRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SteampipeHub
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rolesanywhere.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+              - sts:SetSourceIdentity
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt TrustAnchor.TrustAnchorArn
+              StringEquals:
+                aws:PrincipalTag/x509Subject/CN: !Ref CertCommonName
+      Policies:
+        - PolicyName: AssumeSteampipeReadOnlyOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:TagSession
+                  - sts:SetSourceIdentity
+                Resource: arn:aws:iam::*:role/SteampipeReadOnly
+
+  Profile:
+    Type: AWS::RolesAnywhere::Profile
+    Properties:
+      Name: steampipe-railway
+      Enabled: true
+      DurationSeconds: 3600
+      RoleArns:
+        - !GetAtt HubRole.Arn
+
+Outputs:
+  TrustAnchorArn:
+    Value: !GetAtt TrustAnchor.TrustAnchorArn
+  ProfileArn:
+    Value: !GetAtt Profile.ProfileArn
+  HubRoleArn:
+    Value: !GetAtt HubRole.Arn
